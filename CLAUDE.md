@@ -1,0 +1,31 @@
+# Foreman — agent context
+
+Event-driven job-processing platform (portfolio project). Flow: property-data import → **transactional outbox** → **idempotent workers** (retries + dead-letter) → **live WebSocket status** → downloadable report. The point is **backend reliability engineering beyond CRUD**, not feature breadth.
+
+## Stack
+
+Python 3.12, Django 5 + DRF, PostgreSQL 16, Redis + Celery (M2+), Django Channels (M4+), Docker Compose, pytest + pytest-django + factory_boy, ruff, GitHub Actions.
+
+## Commands
+
+- `make up` / `make down` — local Docker stack (Django + Postgres).
+- `make migrate` / `make makemigrations` — migrations (run on the host via uv).
+- `make test` — pytest. `make lint` — ruff check + format-check. `make fmt` — auto-fix. `make ci` — lint + test (what CI runs).
+- Host runs use `uv`; settings read `DATABASE_URL` from the env (`.env.example`). For a quick host test run without Postgres: `DATABASE_URL="sqlite://:memory:" uv run pytest`.
+
+## Layout
+
+- `config/` — Django project. Settings are env-driven; the DB comes from `DATABASE_URL` via `dj-database-url` (Postgres by default).
+- `jobs/` — the core app. `Job` model: UUID pk; states `PENDING → PROCESSING → SUCCEEDED|FAILED|DEAD_LETTER`; outbox-ready fields `idempotency_key` (unique-or-null) and `attempts`. DRF `JobViewSet` (create/retrieve/list) + `HealthView`. Tests use the `api_client` fixture from `conftest.py`.
+
+## Milestone roadmap
+
+M1 walking skeleton (submit/track API, no processing) → M2 worker + transactional outbox → M3 reliability (worker-side idempotency, retries, DLQ) → M4 realtime UI + observability → M5 ship (deploy, demo, case study).
+
+## Conventions
+
+- **CI calls `make` targets** — don't inline build/test logic in the workflow YAML.
+- DB tests are marked `pytestmark = pytest.mark.django_db`; use `factory_boy` (`JobFactory`) for fixtures.
+- Settings stay Postgres-by-default; only point `DATABASE_URL` at SQLite for fast local test runs (no hidden divergence in settings).
+- PRs squash-merge — the PR title becomes the permanent commit subject, so write it well.
+- New milestones land as their own branch + PR; keep the `Job` schema forward-compatible to avoid migration churn.
