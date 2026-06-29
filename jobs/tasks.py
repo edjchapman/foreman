@@ -95,6 +95,8 @@ def _import_properties(job_id: str) -> dict:
     _bulk_create_with_progress(job, records)
     return {
         "rows_total": len(records) + len(errors),
+        # On an idempotent re-run this is the job's target state (these rows exist),
+        # not the number newly inserted — the right semantic for at-least-once delivery.
         "rows_imported": len(records),
         "rows_skipped": len(errors),
         "errors": errors,
@@ -105,7 +107,12 @@ def _bulk_create_with_progress(job: Job, records: list[dict]) -> None:
     total = len(records)
     for start in range(0, total, PROGRESS_CHUNK):
         batch = records[start : start + PROGRESS_CHUNK]
-        PropertyRecord.objects.bulk_create([PropertyRecord(job=job, **row) for row in batch])
+        # ignore_conflicts: a redelivered job re-imports the same rows; the unique
+        # (job, external_id) constraint turns each duplicate insert into a no-op,
+        # giving exactly-once *effect* without re-reading what already landed.
+        PropertyRecord.objects.bulk_create(
+            [PropertyRecord(job=job, **row) for row in batch], ignore_conflicts=True
+        )
         done = start + len(batch)
         Job.objects.filter(pk=job.id).update(
             progress=int(done / total * 100), updated_at=timezone.now()
