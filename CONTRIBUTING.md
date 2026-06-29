@@ -12,8 +12,9 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 - **!** marks a breaking change · keep the subject ≤ 72 chars
 
 PRs are **squash-merged**, so the **PR title becomes the permanent commit
-subject** — write it to the standard above. Validation is **warn-only** today
-(`commit-style.yml` warns on a non-conforming PR title but does not block).
+subject** — write it to the standard above. This is **enforced**: `commit-style.yml`
+runs `--strict` and is a required check on the `main` ruleset, so a non-conforming
+PR title blocks the merge.
 
 ## Quality gates
 
