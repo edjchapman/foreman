@@ -7,8 +7,9 @@ class Job(models.Model):
     """A unit of asynchronous work.
 
     M1 only ever creates jobs in PENDING (there is no worker yet). The non-PENDING
-    states and the `idempotency_key` / `attempts` fields are present from the start so
-    the M2 outbox/worker and M3 reliability work don't churn the schema.
+    states and the `idempotency_key` / `attempts` fields were front-loaded in M1 to
+    minimise churn; M3 adds the lease/scheduling fields (`available_at`,
+    `leased_until`, `lease_token`) that retries and crash-recovery need.
     """
 
     class Status(models.TextChoices):
@@ -37,6 +38,15 @@ class Job(models.Model):
     )
     progress = models.PositiveSmallIntegerField(default=0)
     attempts = models.PositiveSmallIntegerField(default=0)
+    # M3 reliability state, all driven from Postgres (never the broker):
+    # - available_at: when a (re)dispatch becomes eligible. NULL for a brand-new job
+    #   (the outbox dispatches it); a future time schedules a backoff retry.
+    # - leased_until / lease_token: the worker's lease while PROCESSING. The reaper
+    #   reclaims an expired lease; the token fences a reclaimed-then-resumed worker's
+    #   stale write so it cannot clobber the row.
+    available_at = models.DateTimeField(null=True, blank=True)
+    leased_until = models.DateTimeField(null=True, blank=True)
+    lease_token = models.UUIDField(null=True, blank=True)
     result = models.JSONField(null=True, blank=True)
     error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -44,6 +54,15 @@ class Job(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        # Partial index on the requeue scan's hot path (retry-scheduled rows only),
+        # mirroring outbox_pending_idx — stays small as terminal rows accumulate.
+        indexes = [
+            models.Index(
+                fields=["available_at"],
+                condition=models.Q(status="PENDING", available_at__isnull=False),
+                name="job_retry_due_idx",
+            ),
+        ]
 
     def __str__(self):
         return f"Job {self.id} [{self.status}]"
@@ -96,9 +115,10 @@ class OutboxEvent(models.Model):
 class PropertyRecord(models.Model):
     """A single property row imported from a job's CSV.
 
-    M3 seam: a unique natural key on `external_id` (or an upsert) will give
-    exactly-once *effect* when a job is redelivered. M2 leaves it unconstrained to
-    keep scope tight — the worker's PENDING-guard already prevents reprocessing.
+    Exactly-once *effect* (M3): `(job, external_id)` is unique, so reprocessing a
+    redelivered job converges on the same rows instead of duplicating them — the
+    worker pairs this with `bulk_create(ignore_conflicts=True)`. Scoped per-job (not
+    a global `external_id`) so distinct imports of the same property never collide.
     """
 
     job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="properties")
@@ -112,6 +132,9 @@ class PropertyRecord(models.Model):
 
     class Meta:
         ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(fields=["job", "external_id"], name="uniq_property_per_job"),
+        ]
 
     def __str__(self):
         return f"PropertyRecord {self.external_id} ({self.city})"
