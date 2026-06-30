@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest an enhancement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What reliability or operability gap does this close?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: false

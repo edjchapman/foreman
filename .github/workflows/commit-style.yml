@@ -6,9 +6,10 @@ name: commit-style
 # (which are squashed away). Gated to pull_request because the title only exists
 # there; the tree-state `check.yml` workflow also runs on push and does not have it.
 #
-# Warn-only today: check-commit-msg.sh exits 0 on a non-conforming subject. To
-# promote to a blocking check once commits have followed the standard for a few
-# weeks, add `--strict` to the run command below (and to .githooks/commit-msg).
+# Blocking: `--strict` makes a non-conforming subject fail, and this check is
+# required by the `main` ruleset. The repo history already follows the standard;
+# release-please (`chore(main): release …`) and Dependabot (`build(deps): …`,
+# `ci(deps): …`) titles conform too, so automation is not blocked.
 
 on:
   pull_request:
@@ -27,4 +28,4 @@ jobs:
       - name: Validate PR title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-        run: printf '%s\n' "$PR_TITLE" | ./scripts/check-commit-msg.sh --stdin
+        run: printf '%s\n' "$PR_TITLE" | ./scripts/check-commit-msg.sh --stdin --strict
