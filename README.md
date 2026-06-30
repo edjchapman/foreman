@@ -1,5 +1,15 @@
 # Foreman
 
+[![CI](https://github.com/edjchapman/foreman/actions/workflows/ci.yml/badge.svg)](https://github.com/edjchapman/foreman/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/edjchapman/foreman/actions/workflows/codeql.yml/badge.svg)](https://github.com/edjchapman/foreman/actions/workflows/codeql.yml)
+[![codecov](https://codecov.io/gh/edjchapman/foreman/branch/main/graph/badge.svg)](https://codecov.io/gh/edjchapman/foreman)
+[![Release](https://img.shields.io/github/v/release/edjchapman/foreman?sort=semver)](https://github.com/edjchapman/foreman/releases)
+[![License: MIT](https://img.shields.io/github/license/edjchapman/foreman)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](pyproject.toml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://img.shields.io/badge/mypy-checked-2a6db2.svg)](https://mypy-lang.org/)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg)](https://www.conventionalcommits.org)
+
 **Event-driven job-processing platform** — a property-data import & report-generation service built to demonstrate backend reliability engineering *beyond CRUD*.
 
 A user submits a processing job (e.g. a property/lease CSV import); the API records it atomically and emits a domain event via a **transactional outbox**; **idempotent background workers** process it with **retries** and a **dead-letter** path; the UI streams **live progress over WebSockets** before producing a downloadable report.
@@ -9,6 +19,31 @@ A user submits a processing job (e.g. a property/lease CSV import); the API reco
 ## Status
 
 ✅ **Milestone 3 complete (reliability).** Workers are idempotent (exactly-once *effect* via a per-job natural key), retry transient failures with capped, jittered backoff, and dead-letter once attempts are exhausted; a lease + reaper recover a job whose worker died mid-flight, and an operator can `redrive` a dead-lettered job. M1 (submit/track API on PostgreSQL) and M2 (async worker + transactional outbox) are also done. Next: **M4 — realtime UI + observability** (live WebSocket progress, structured logging, runbook). See [ADR 0002](docs/adr/0002-retries-dlq-lease.md).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    client([Client]) -->|"POST /api/v1/jobs/"| api[DRF API]
+    subgraph tx["Single DB transaction"]
+        api --> job[("Job: PENDING")]
+        api --> outbox[("OutboxEvent: PENDING")]
+    end
+    beat[Celery Beat] -->|"every N s"| relay[Outbox relay]
+    relay -->|"claim PENDING (SKIP LOCKED)"| outbox
+    relay -->|publish| broker[("Redis broker")]
+    broker --> worker[Celery worker]
+    worker -->|"idempotent natural key"| effect["CSV import → PropertyRecord"]
+    worker -->|"transient failure"| retry{"Retry? capped + jittered backoff"}
+    retry -->|"attempts left"| broker
+    retry -->|exhausted| dlq[("Dead-letter")]
+    reaper[Lease reaper] -->|"reclaim expired lease"| worker
+    operator([Operator]) -->|redrive| dlq
+    worker -->|"→ SUCCEEDED / FAILED"| job
+    job -.->|"M4: live status"| client
+```
+
+See [ADR 0001](docs/adr/0001-transactional-outbox.md) (the outbox) and [ADR 0002](docs/adr/0002-retries-dlq-lease.md) (retries, dead-letter, lease + reaper) for the design rationale.
 
 ## Stack
 
@@ -69,15 +104,18 @@ A submitted job is recorded `PENDING` together with a transactional-outbox event
 
 ## Development
 
-`make help` lists every target. Two gates guard the repo:
+`make help` lists every target; **`make preflight`** runs the full pre-PR gate. CI enforces:
 
-- **`make ci`** — stack gate: ruff lint + format-check + pytest with an 80%
-  coverage floor (`--cov-fail-under`), against a PostgreSQL service. Run by the
-  `ci` workflow. Worker/relay processes run locally via `make worker` / `make
-  beat` (or `make relay` for a one-shot outbox dispatch).
-- **`make check`** — docs/hygiene gate: internal markdown link + anchor
-  validation (bash + python3 only). Run by `check` on every push/PR, weekly by
-  `scheduled-check`, and locally on commit.
+- **`make ci`** — stack gate: ruff lint + format-check, **mypy** (strict), and pytest
+  with a **90%** coverage floor, against a PostgreSQL service. Coverage is uploaded to
+  **Codecov**.
+- **`make check`** — docs/hygiene gate: internal markdown link + anchor validation.
+- **`make audit`** — `pip-audit` for dependency CVEs (weekly + on PRs via `audit.yml`).
+- **CodeQL** scans the Python code and the workflows; **dependency-review** gates new
+  dependencies on every PR.
 
-PR titles are linted (warn-only) by `commit-style`. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions.
+PR titles follow [Conventional Commits](https://www.conventionalcommits.org) and are
+**enforced** by `commit-style` (a required check on `main`). Releases are automated by
+**release-please** — merging its Release PR cuts a GitHub Release + tag from the commit
+history and publishes a versioned image to **GHCR** (`ghcr.io/edjchapman/foreman`). See
+[CONTRIBUTING.md](CONTRIBUTING.md).
