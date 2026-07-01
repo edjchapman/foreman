@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/edjchapman/foreman/compare/v0.2.3...v0.3.0) (2026-07-01)
+
+
+### Features
+
+* **observability:** structured logging, DB-derived metrics, liveness/readiness, runbook + ADR 0003 ([#34](https://github.com/edjchapman/foreman/issues/34)) ([6174638](https://github.com/edjchapman/foreman/commit/61746380a8178431f0d1b03f383dd351d0886752))
+
 ## [0.2.3](https://github.com/edjchapman/foreman/compare/v0.2.2...v0.2.3) (2026-07-01)
 
 
