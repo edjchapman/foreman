@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/edjchapman/foreman/compare/v0.2.2...v0.2.3) (2026-07-01)
+
+
+### Build System
+
+* **deps-dev:** bump mypy from 1.19.1 to 2.1.0 in the python group across 1 directory ([#30](https://github.com/edjchapman/foreman/issues/30)) ([43106e3](https://github.com/edjchapman/foreman/commit/43106e3ebe68975a84748f1513dd75efac240356))
+
 ## [0.2.2](https://github.com/edjchapman/foreman/compare/v0.2.1...v0.2.2) (2026-07-01)
 
 
