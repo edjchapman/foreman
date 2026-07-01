@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/edjchapman/foreman/compare/v0.5.0...v0.6.0) (2026-07-01)
+
+
+### Features
+
+* **deploy:** production-harden settings, WhiteNoise static, non-root Docker ([#40](https://github.com/edjchapman/foreman/issues/40)) ([f8a46f6](https://github.com/edjchapman/foreman/commit/f8a46f69bf059839cdcdf601904d70ab9743f5e2))
+
 ## [0.5.0](https://github.com/edjchapman/foreman/compare/v0.4.0...v0.5.0) (2026-07-01)
 
 
