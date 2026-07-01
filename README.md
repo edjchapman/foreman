@@ -11,15 +11,33 @@
 [![Checked with mypy](https://img.shields.io/badge/mypy-checked-2a6db2.svg)](https://mypy-lang.org/)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg)](https://www.conventionalcommits.org)
 
-**Event-driven job-processing platform** — a property-data import & report-generation service built to demonstrate backend reliability engineering *beyond CRUD*.
+**Event-driven job-processing platform** — a property-data import & report-generation service that demonstrates backend **reliability engineering** *beyond CRUD*: at-least-once delivery, exactly-once *effect*, failure isolation, and automatic crash recovery.
 
-A user submits a processing job (e.g. a property/lease CSV import); the API records it atomically and emits a domain event via a **transactional outbox**; **idempotent background workers** process it with **retries** and a **dead-letter** path; the UI streams **live progress over WebSockets** before producing a downloadable report.
+Submit a job (e.g. a property CSV import) → the API records it atomically and emits a domain event through a **transactional outbox** → **idempotent workers** process it with **retries** and a **dead-letter** path, recovering on their own from a worker crash → progress streams over **WebSockets** *(M4)* before a downloadable report.
 
-> Portfolio learning project. The focus is the *reliability and operability* story — at-least-once delivery, exactly-once *effect*, failure isolation, observability — not feature breadth.
+> Portfolio project — the focus is the *reliability and operability* story, not feature breadth. **Milestone 3 (reliability) is complete;** M4 (realtime UI + observability) is next.
 
-## Status
+## Contents
 
-✅ **Milestone 3 complete (reliability).** Workers are idempotent (exactly-once *effect* via a per-job natural key), retry transient failures with capped, jittered backoff, and dead-letter once attempts are exhausted; a lease + reaper recover a job whose worker died mid-flight, and an operator can `redrive` a dead-lettered job. M1 (submit/track API on PostgreSQL) and M2 (async worker + transactional outbox) are also done. Next: **M4 — realtime UI + observability** (live WebSocket progress, structured logging, runbook). See [ADR 0002](docs/adr/0002-retries-dlq-lease.md).
+- [Highlights](#highlights)
+- [Architecture](#architecture)
+- [Reliability model](#reliability-model)
+- [Tech stack](#tech-stack)
+- [Quickstart](#quickstart)
+- [API](#api)
+- [Engineering practices](#engineering-practices)
+- [Roadmap](#roadmap)
+- [Development](#development)
+- [License](#license)
+
+## Highlights
+
+- **Transactional outbox** — a job and its domain event commit in a single DB transaction, so the system never publishes a message for a job that didn't persist, and never persists a job whose event was lost (no dual-write race). See [ADR 0001](docs/adr/0001-transactional-outbox.md).
+- **Exactly-once *effect*** — workers are idempotent via a per-job natural key + `bulk_create(ignore_conflicts=True)`, so an at-least-once redelivery converges on the same rows instead of duplicating them.
+- **Retries, backoff & dead-letter** — transient failures retry with capped, full-jitter exponential backoff; poison inputs fail fast; exhausted jobs land in a dead-letter state an operator can `redrive`. See [ADR 0002](docs/adr/0002-retries-dlq-lease.md).
+- **Crash recovery** — a worker lease + reaper reclaim a job whose worker died mid-flight, and a **fencing token** stops a resumed zombie worker from clobbering the row.
+- **Non-blocking, horizontal claims** — the relay and requeue scans use `SELECT … FOR UPDATE SKIP LOCKED`, so parallel workers claim disjoint rows without contending.
+- **Run like a service** — `mypy --strict`, ruff (incl. bandit), a 90% coverage floor against a real PostgreSQL, ADRs, automated releases, and a hardened supply chain (see [Engineering practices](#engineering-practices)).
 
 ## Architecture
 
@@ -44,9 +62,25 @@ flowchart LR
     job -.->|"M4: live status"| client
 ```
 
-See [ADR 0001](docs/adr/0001-transactional-outbox.md) (the outbox) and [ADR 0002](docs/adr/0002-retries-dlq-lease.md) (retries, dead-letter, lease + reaper) for the design rationale.
+The **outbox** decouples submission from dispatch; the **relay** is a dumb publisher that never re-reads the job (so it can't race it); the **worker** owns idempotency, retries, and terminal state. See [ADR 0001](docs/adr/0001-transactional-outbox.md) and [ADR 0002](docs/adr/0002-retries-dlq-lease.md) for the rationale.
 
-## Stack
+## Reliability model
+
+The design is organised around explicit delivery and failure guarantees:
+
+| Concern | Guarantee | Mechanism |
+|---|---|---|
+| Publish | **No dual-write** | Job + `OutboxEvent` commit in one transaction; a Beat relay publishes the outbox. |
+| Delivery | **At-least-once** | The relay re-sends after a crash between publish and mark-dispatched. |
+| Effect | **Exactly-once** | Per-job natural key + `bulk_create(ignore_conflicts=True)` — reprocessing converges, never duplicates. |
+| Transient failure | **Retry, then dead-letter** | Capped full-jitter exponential backoff; dead-letter after `JOB_MAX_ATTEMPTS`; operator `redrive`. |
+| Poison input | **Fail fast** | An `IngestError` goes straight to `FAILED` with no retries. |
+| Worker crash | **Lease + reaper recovery** | An expired lease is reclaimed; a fencing token discards a resumed zombie's stale write. |
+| Concurrency | **Non-blocking claims** | `SELECT … FOR UPDATE SKIP LOCKED` (PostgreSQL). |
+
+Failure modes and the crash-window analysis are documented in [ADR 0002](docs/adr/0002-retries-dlq-lease.md).
+
+## Tech stack
 
 Python 3.12 · Django 5 + Django REST Framework · PostgreSQL 16 · Redis + Celery · Django Channels / WebSockets *(M4)* · Docker Compose · pytest · GitHub Actions.
 
@@ -55,10 +89,10 @@ Python 3.12 · Django 5 + Django REST Framework · PostgreSQL 16 · Redis + Cele
 Full stack with Docker:
 
 ```bash
-make up          # Django + Postgres; API on http://localhost:8000
+make up          # Django + Postgres + Redis; API on http://localhost:8000
 ```
 
-On the host with uv (no Docker — reads `DATABASE_URL` from your env, see `.env.example`):
+On the host with [uv](https://docs.astral.sh/uv/) (no Docker — reads `DATABASE_URL` from your env, see `.env.example`):
 
 ```bash
 uv sync
@@ -72,19 +106,17 @@ Submit and track a job:
 ```bash
 curl -X POST localhost:8000/api/v1/jobs/ \
   -H 'Content-Type: application/json' \
-  -d '{"job_type": "property_csv_import", "payload": {"source": "s3://bucket/sample.csv"}}'
+  -d '{"job_type": "property_csv_import", "payload": {"source": "sample:properties.csv"}}'
 
 curl localhost:8000/api/v1/jobs/<id>/
 curl localhost:8000/healthz
 ```
 
-The default sample source (`sample:properties.csv`) resolves to a bundled
-fixture, so a submitted job runs end-to-end with no external storage. Watch it
-move `PENDING → PROCESSING → SUCCEEDED` (with `progress` and an import summary in
-`result`). Inline CSV via `payload.csv` also works; remote schemes (`s3://`,
-`https://`) are a later milestone.
+The default sample source (`sample:properties.csv`) resolves to a bundled fixture, so a job runs end-to-end with no external storage — watch it move `PENDING → PROCESSING → SUCCEEDED`, with `progress` and an import summary in `result`. Inline CSV via `payload.csv` also works; remote schemes (`s3://`, `https://`) are a later milestone.
 
-## API (v1)
+## API
+
+The current API is `v1`:
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -93,30 +125,32 @@ move `PENDING → PROCESSING → SUCCEEDED` (with `progress` and an import summa
 | `GET` | `/api/v1/jobs/` | List jobs (paginated). |
 | `GET` | `/healthz` | Liveness + database check. |
 
-A submitted job is recorded `PENDING` together with a transactional-outbox event (one DB transaction). A Celery Beat relay publishes the event to the worker, which ingests the CSV and moves the job to `SUCCEEDED` (or `FAILED`). See [ADR 0001](docs/adr/0001-transactional-outbox.md) for why the outbox sits between submission and dispatch.
+A submitted job is recorded `PENDING` alongside its outbox event in one transaction; the relay publishes it and the worker drives it to `SUCCEEDED` (or `FAILED`).
+
+## Engineering practices
+
+Beyond the feature work, the repo is operated like a production service:
+
+- **CI gates** (required on `main`): ruff lint + format, `mypy --strict` with django/DRF stubs, and pytest at a **90% coverage floor** against a real PostgreSQL service — plus a docs/link gate. Run the whole thing locally with `make preflight`.
+- **Security & supply chain**: CodeQL (code *and* workflows), dependency review on PRs, scheduled `pip-audit`, secret scanning + push protection, SHA-pinned actions, a digest-pinned Docker base image, and SLSA build-provenance attestations on release images. Posture is graded by [OpenSSF Scorecard](https://securityscorecards.dev/viewer/?uri=github.com/edjchapman/foreman).
+- **Automated releases**: Conventional Commits drive [release-please](https://github.com/googleapis/release-please) — it maintains the `CHANGELOG` + version and cuts GitHub Releases, each publishing a versioned image to **GHCR** (`ghcr.io/edjchapman/foreman`).
+- **Governance**: protected `main` (required checks, linear history, squash-only, no bypass), `CODEOWNERS`, issue templates, a [security policy](SECURITY.md), and Dependabot across Python, Actions, and Docker.
+- **Decisions**: architecture choices are captured as [ADRs](docs/adr/README.md).
 
 ## Roadmap
 
 - **M1 — walking skeleton** *(done)*: repo, Docker Compose, `Job` model, submit/track API, health check, tests + CI.
-- **M2 — async worker + transactional outbox** *(done)* (Redis + Celery): atomic job+event write, Beat relay, worker ingests the property CSV into `PropertyRecord`. See [ADR 0001](docs/adr/0001-transactional-outbox.md).
+- **M2 — async worker + transactional outbox** *(done)*: atomic job+event write, Beat relay, worker ingests the property CSV into `PropertyRecord`. See [ADR 0001](docs/adr/0001-transactional-outbox.md).
 - **M3 — reliability** *(done)*: worker-side idempotency (exactly-once effect), retries with backoff, dead-letter, lease-based crash recovery, operator redrive, documented failure modes. See [ADR 0002](docs/adr/0002-retries-dlq-lease.md).
 - **M4 — realtime UI + observability**: React/TS + live WebSocket progress (Channels), structured logging, runbook.
 - **M5 — ship**: Cypress E2E, deploy + public demo, case study.
 
 ## Development
 
-`make help` lists every target; **`make preflight`** runs the full pre-PR gate. CI enforces:
+`make help` lists every target; **`make preflight`** runs the full pre-PR gate (lint + types + tests + audit + docs). Worker/relay run locally via `make worker` / `make beat` (or `make relay` for a one-shot outbox dispatch).
 
-- **`make ci`** — stack gate: ruff lint + format-check, **mypy** (strict), and pytest
-  with a **90%** coverage floor, against a PostgreSQL service. Coverage is uploaded to
-  **Codecov**.
-- **`make check`** — docs/hygiene gate: internal markdown link + anchor validation.
-- **`make audit`** — `pip-audit` for dependency CVEs (weekly + on PRs via `audit.yml`).
-- **CodeQL** scans the Python code and the workflows; **dependency-review** gates new
-  dependencies on every PR.
+Contributions follow [Conventional Commits](https://www.conventionalcommits.org) (the PR title is enforced by a required check and becomes the squash-merge subject). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-PR titles follow [Conventional Commits](https://www.conventionalcommits.org) and are
-**enforced** by `commit-style` (a required check on `main`). Releases are automated by
-**release-please** — merging its Release PR cuts a GitHub Release + tag from the commit
-history and publishes a versioned image to **GHCR** (`ghcr.io/edjchapman/foreman`). See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+## License
+
+[MIT](LICENSE) © Ed Chapman.
