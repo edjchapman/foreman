@@ -1,5 +1,6 @@
-# Single-stage image; uv manages the environment.
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# Single-stage image; uv manages the environment. The base image is pinned by digest
+# (Dependabot's docker ecosystem bumps it) for a reproducible, supply-chain-safe build.
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
