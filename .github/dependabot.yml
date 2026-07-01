@@ -30,3 +30,13 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
+
+  # Docker base image — keeps the digest-pinned FROM in the Dockerfile fresh.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "build"
+      include: "scope"
