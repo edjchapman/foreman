@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/edjchapman/foreman/compare/v0.7.0...v0.8.0) (2026-07-02)
+
+
+### Features
+
+* **deploy:** Railway platform — Terraform IaC, semver-pinned CD, release pipeline ([#46](https://github.com/edjchapman/foreman/issues/46)) ([cca9722](https://github.com/edjchapman/foreman/commit/cca972284967a12a31f7efd2b3f8fc61b6fce2de))
+* **deploy:** verify worker/beat rollout + GHCR tag pre-flight ([#48](https://github.com/edjchapman/foreman/issues/48)) ([7360039](https://github.com/edjchapman/foreman/commit/7360039bb7e0d04246ccd9aa0998d2f50f97fb6c))
+
 ## [0.7.0](https://github.com/edjchapman/foreman/compare/v0.6.0...v0.7.0) (2026-07-02)
 
 
