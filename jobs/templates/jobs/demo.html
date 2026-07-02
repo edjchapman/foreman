@@ -38,6 +38,7 @@
     <div class="row"><span class="badge" id="status">…</span> <span>attempt <span id="attempts">0</span></span></div>
     <div class="track"><div class="fill" id="progress"></div></div>
     <pre id="detail"></pre>
+    <a id="report" hidden download>Download report (CSV)</a>
   </section>
 
   {% verbatim %}
@@ -74,6 +75,9 @@
       $("progress").style.width = (job.progress || 0) + "%";
       const detail = job.error ? { error: job.error } : job.result;
       $("detail").textContent = detail ? JSON.stringify(detail, null, 2) : "";
+      const report = $("report");
+      report.hidden = job.status !== "SUCCEEDED";
+      if (!report.hidden) report.href = `/api/v1/jobs/${job.id}/report/`;
     }
 
     $("run-sample").onclick = () => submit({ source: "sample:properties.csv" });

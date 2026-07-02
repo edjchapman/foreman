@@ -14,4 +14,5 @@ def test_demo_page_renders(client):
     assert "/ws/jobs/" in body  # the page streams from the WebSocket endpoint
     assert 'id="run-sample"' in body
     assert 'id="run-bad"' in body
+    assert 'id="report"' in body  # download link, revealed by render() on SUCCEEDED
     assert resp.cookies.get("csrftoken") is not None  # ensure_csrf_cookie fired on GET
