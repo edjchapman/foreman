@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/edjchapman/foreman/compare/v0.9.0...v0.9.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* **deploy:** unblock Railway healthchecks and drop the redis volume ([#51](https://github.com/edjchapman/foreman/issues/51)) ([5a41141](https://github.com/edjchapman/foreman/commit/5a41141498be5aa7e40ff086f993737e036a3f87))
+
 ## [0.9.0](https://github.com/edjchapman/foreman/compare/v0.8.0...v0.9.0) (2026-07-02)
 
 
