@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/edjchapman/foreman/compare/v0.9.1...v0.9.2) (2026-07-02)
+
+
+### Bug Fixes
+
+* **deploy:** poll rollouts by deployment id; replace vanished bitnami image ([#53](https://github.com/edjchapman/foreman/issues/53)) ([5f2f96a](https://github.com/edjchapman/foreman/commit/5f2f96af883369ae576a697edf84d7e58d54a50f))
+
 ## [0.9.1](https://github.com/edjchapman/foreman/compare/v0.9.0...v0.9.1) (2026-07-02)
 
 
