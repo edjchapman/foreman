@@ -4,8 +4,9 @@ name: deploy
 # automatically (release-please.yml -> deploy job); this path exists for
 # rollbacks (pick a previous version) and for re-pinning after a
 # `terraform apply` rebuild (service IDs change, the platform boots on
-# :latest until re-pinned). Same script either way: web deploys first and
-# gates worker/beat behind pre-deploy migrate + /readyz.
+# :latest until re-pinned). Same script either way: a GHCR pre-flight rejects
+# unpublished tags, web deploys first and gates worker/beat behind pre-deploy
+# migrate + /readyz, then worker/beat are polled to success too.
 
 on:
   workflow_dispatch:
@@ -25,6 +26,7 @@ jobs:
   deploy:
     name: deploy
     runs-on: ubuntu-latest
+    environment: production # no protection rules — used for deployment history
     permissions:
       contents: read
     steps:
