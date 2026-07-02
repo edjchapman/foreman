@@ -151,3 +151,7 @@ The app is 12-factor: prod is configured entirely by env vars, and the hardening
 already-HTTPS request is seen as HTTP and 301-loops forever. Static files are collected into
 the image and served by WhiteNoise. Validate with `python manage.py check --deploy`; run
 `migrate` as a release step (not per web replica).
+
+The production platform is **Railway** — topology, provisioning, CD flow, smoke checks, and
+rollback live in [deploy.md](deploy.md) (decision rationale:
+[ADR 0005](adr/0005-deployment-platform.md)).
