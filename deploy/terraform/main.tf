@@ -24,8 +24,12 @@ locals {
   ]
 
   web_env = concat(local.app_env, [
+    # Railway healthchecks probe the port in PORT and send
+    # Host: healthcheck.railway.app — both must be declared or the deploy
+    # gate can never pass (daphne listens on the image's fixed 8000).
+    { name = "PORT", value = "8000" },
     # Also gates the WebSocket Origin check (AllowedHostsOriginValidator).
-    { name = "DJANGO_ALLOWED_HOSTS", value = railway_service_domain.web.domain },
+    { name = "DJANGO_ALLOWED_HOSTS", value = "${railway_service_domain.web.domain},healthcheck.railway.app" },
     { name = "DJANGO_CSRF_TRUSTED_ORIGINS", value = "https://${railway_service_domain.web.domain}" },
     { name = "DJANGO_SECURE_SSL_REDIRECT", value = "true" },
     { name = "DJANGO_SECURE_COOKIES", value = "true" },
@@ -81,15 +85,14 @@ resource "railway_variable_collection" "postgres" {
   ]
 }
 
+# No volume: Redis holds only ephemeral state here (Celery broker/results,
+# Channels layer) — durable data lives in Postgres. Also load-bearing: the
+# provider (v0.6.2) creates but never attaches a second project volume, so a
+# redis volume deterministically fails every fresh `apply` (the off/on switch).
 resource "railway_service" "redis" {
   name         = "redis"
   project_id   = railway_project.foreman.id
   source_image = "bitnami/redis:7.2"
-
-  volume = {
-    name       = "redis-data"
-    mount_path = "/bitnami"
-  }
 }
 
 resource "railway_variable_collection" "redis" {
