@@ -1,10 +1,13 @@
 from typing import Any
 
 from django.db import connection
+from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.generic import TemplateView
 from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
@@ -13,6 +16,7 @@ from rest_framework.views import APIView
 from config import celery_app
 
 from .models import Job
+from .reports import report_filename, stream_report
 from .serializers import JobCreateSerializer, JobSerializer
 from .services import submit_job
 
@@ -49,6 +53,25 @@ class JobViewSet(
             return Response(data, status=status.HTTP_200_OK)
         location = reverse("job-detail", args=[job.id], request=request)
         return Response(data, status=status.HTTP_202_ACCEPTED, headers={"Location": location})
+
+    @action(detail=True, methods=["get"])
+    def report(self, request: Request, pk: str | None = None) -> HttpResponseBase:
+        """Download the imported records as CSV — only available once SUCCEEDED.
+
+        Streams via an async generator (`jobs.reports.stream_report`): under ASGI a
+        sync iterator would make Django buffer the whole body. 409 (not 404) for a
+        job that exists but hasn't succeeded — the resource is real, its state isn't
+        ready (PENDING/PROCESSING) or never will be (FAILED/DEAD_LETTER).
+        """
+        job = self.get_object()
+        if job.status != Job.Status.SUCCEEDED:
+            return Response(
+                {"detail": "Report is only available for succeeded jobs.", "status": job.status},
+                status=status.HTTP_409_CONFLICT,
+            )
+        response = StreamingHttpResponse(stream_report(job), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{report_filename(job)}"'
+        return response
 
 
 def check_database() -> bool:
