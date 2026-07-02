@@ -1,5 +1,5 @@
 .PHONY: help up down build logs migrate makemigrations test lint fmt typecheck audit ci preflight shell \
-        worker beat relay \
+        worker beat relay deploy \
         check check-links check-anchors stack-check \
         check-commit-msg check-stale-branches sweep-branches lint-md
 
@@ -68,6 +68,11 @@ beat: ## Run Celery beat — schedules the outbox relay
 
 relay: ## Dispatch the outbox once (no beat) — claims + publishes PENDING events
 	uv run python manage.py shell -c "from jobs.tasks import dispatch_outbox; print(dispatch_outbox())"
+
+# === Deploy (M5: Railway — see docs/deploy.md) ===
+
+deploy: ## Deploy VERSION=<x.y.z> to Railway (pins image tags; web gates worker/beat)
+	@./scripts/railway-deploy.sh "$(VERSION)"
 
 # === Validation (docs/hygiene gate — run by check.yml, scheduled-check.yml, pre-commit) ===
 

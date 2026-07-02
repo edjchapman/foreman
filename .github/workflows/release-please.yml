@@ -74,3 +74,25 @@ jobs:
           subject-name: ghcr.io/edjchapman/foreman
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  # Railway doesn't watch GHCR, so CD is explicit: pin each service to the new
+  # semver tag and trigger a deployment (web first — its pre-deploy migrate and
+  # /readyz healthcheck gate worker/beat). Logic lives in scripts/railway-deploy.sh
+  # per the "CI calls make targets" convention. See docs/deploy.md.
+  deploy:
+    name: deploy
+    needs: [release-please, publish-image]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+          RAILWAY_WEB_SERVICE_ID: ${{ vars.RAILWAY_WEB_SERVICE_ID }}
+          RAILWAY_WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
+          RAILWAY_BEAT_SERVICE_ID: ${{ vars.RAILWAY_BEAT_SERVICE_ID }}
+        run: make deploy VERSION=${{ needs.release-please.outputs.version }}

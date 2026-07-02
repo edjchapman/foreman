@@ -10,3 +10,4 @@ older ones explicitly rather than by edit.
 | [0002](0002-retries-dlq-lease.md) | Retries, dead-letter, and lease-based crash recovery | Accepted |
 | [0003](0003-observability.md) | Observability: structured logging, metrics, health/readiness | Accepted |
 | [0004](0004-realtime-websockets.md) | Realtime job status over WebSockets (Django Channels) | Accepted |
+| [0005](0005-deployment-platform.md) | Deployment platform: Railway, one image, semver-pinned CD | Accepted |
