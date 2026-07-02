@@ -73,6 +73,24 @@ def test_readyz_503_when_database_down(api_client, monkeypatch):
     assert resp.data["checks"]["database"] == "down"
 
 
+# --- SSL-redirect exemption (platform healthchecks probe plain HTTP) ---------------
+
+
+def test_health_endpoints_exempt_from_ssl_redirect(api_client, settings, monkeypatch):
+    # Railway-style probes send plain HTTP with no forwarded-proto header; a 301
+    # fails the probe, so both endpoints bypass SECURE_SSL_REDIRECT.
+    settings.SECURE_SSL_REDIRECT = True
+    monkeypatch.setattr("jobs.views.check_broker", lambda: True)
+    assert api_client.get("/healthz").status_code == 200
+    assert api_client.get("/readyz").status_code == 200
+
+
+def test_ssl_redirect_still_covers_other_paths(api_client, settings):
+    # Control: the exemption is scoped to the probes, not a redirect bypass.
+    settings.SECURE_SSL_REDIRECT = True
+    assert api_client.get("/").status_code == 301
+
+
 # --- Dependency-check helpers (real bodies) ---------------------------------------
 
 

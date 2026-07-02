@@ -22,7 +22,7 @@ region if EU selection is plan-gated.
 | Service | Source | Command / settings |
 |---|---|---|
 | `Postgres` | Railway template (`ghcr.io/railwayapp-templates/postgres-ssl:16`) | Pin the image tag to `16` **before first boot** — switching major version after data exists breaks the data dir. Volume attached by the template. |
-| `Redis` | Railway template | Celery broker + result backend + Channels layer, all via one `REDIS_URL`. |
+| `Redis` | Railway template | Celery broker + result backend + Channels layer, all via one `REDIS_URL`. **No volume** — all state is ephemeral by design (and the provider can't reliably attach a second volume; see `deploy/terraform/main.tf`). |
 | `web` | `ghcr.io/edjchapman/foreman:<semver>` | Image default CMD (daphne, port 8000). Healthcheck path `/readyz`. Pre-deploy command `uv run --no-dev python manage.py migrate`. Public domain generated (target port 8000). |
 | `worker` | same image | Start command `uv run --no-dev celery -A config worker -l info --concurrency 2` (`--no-dev` matches the image's frozen sync; `--concurrency 2` caps fork-per-visible-CPU RAM cost). |
 | `beat` | same image | Start command `uv run --no-dev celery -A config beat -l info`. Exactly 1 replica, always — two Beats double-schedule. The `celerybeat-schedule` file on ephemeral FS is fine (re-seeds from settings). |
@@ -48,7 +48,8 @@ documented in [`.env.example`](../.env.example); the production values
 | `REDIS_URL` | `${{Redis.REDIS_URL}}` |
 | `DJANGO_SECRET_KEY` | `${{shared.DJANGO_SECRET_KEY}}` |
 | `DJANGO_DEBUG` | `false` |
-| `DJANGO_ALLOWED_HOSTS` | `${{RAILWAY_PUBLIC_DOMAIN}}` — also gates the WebSocket `Origin` check |
+| `DJANGO_ALLOWED_HOSTS` | `${{RAILWAY_PUBLIC_DOMAIN}},healthcheck.railway.app` — also gates the WebSocket `Origin` check; the second entry is the Host header Railway probes send |
+| `PORT` | `8000` — Railway healthchecks probe the port named here (daphne listens on the image's fixed 8000) |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` |
 | `DJANGO_SECURE_SSL_REDIRECT` | `true` (safe: settings already trust `X-Forwarded-Proto`) |
 | `DJANGO_SECURE_COOKIES` | `true` |
@@ -136,8 +137,8 @@ the public domain.
 Manual first (account owner):
 
 1. Railway account, Hobby plan, payment method.
-2. Workspace → Usage: **hard limit $10** (platform minimum — takes workloads
-   offline at the cap, acceptable for a demo) + soft alert $5.
+2. Workspace → Usage: hard limit \$10 (platform minimum — takes workloads
+   offline at the cap, acceptable for a demo) + soft alert \$5.
 3. Account settings → default region (e.g. EU West) — Terraform doesn't set
    region (provider limitation, see the module README).
 4. An **account token** for Terraform (`export RAILWAY_TOKEN=…`).
@@ -185,8 +186,9 @@ terraform apply     # back in minutes — then `make configure` and update the
 
 1. `curl -fsS https://<domain>/healthz` → 200; `…/readyz` → 200 (DB + Redis
    reachable over private networking).
-2. `curl -sI http://<domain>/healthz` → 301 to `https://` (no redirect loop —
-   proxy-header trust working).
+2. `curl -sI http://<domain>/` → 301 to `https://` (no redirect loop —
+   proxy-header trust working; `/healthz`/`/readyz` are deliberately
+   redirect-exempt so platform probes can hit them over plain HTTP).
 3. Demo page end-to-end in a browser: submit the sample import at `/`, watch
    live progress over `wss://`, download the CSV report.
 4. `curl https://<domain>/metrics` → `foreman_*` gauges;

@@ -182,6 +182,9 @@ STORAGES = {
 # SSL redirect, else the redirected HTTPS request is seen as HTTP and 301-loops forever.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "false").lower() == "true"
+# Platform healthchecks (e.g. Railway's) probe over plain HTTP with no forwarded-proto
+# header — a 301 fails the probe, so the health endpoints stay redirect-exempt.
+SECURE_REDIRECT_EXEMPT = [r"^healthz$", r"^readyz$"]
 SESSION_COOKIE_SECURE = os.environ.get("DJANGO_SECURE_COOKIES", "false").lower() == "true"
 CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
 SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "0"))
