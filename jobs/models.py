@@ -6,10 +6,10 @@ from django.db import models
 class Job(models.Model):
     """A unit of asynchronous work.
 
-    M1 only ever creates jobs in PENDING (there is no worker yet). The non-PENDING
-    states and the `idempotency_key` / `attempts` fields were front-loaded in M1 to
-    minimise churn; M3 adds the lease/scheduling fields (`available_at`,
-    `leased_until`, `lease_token`) that retries and crash-recovery need.
+    Lifecycle: PENDING → PROCESSING → SUCCEEDED | FAILED | DEAD_LETTER, driven by
+    `jobs.tasks.process_job`. The M3 lease/scheduling fields (`available_at`,
+    `leased_until`, `lease_token`) carry retry backoff and crash-recovery state;
+    `result` holds the import summary on success and `error` the failure detail.
     """
 
     class Status(models.TextChoices):

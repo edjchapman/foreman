@@ -13,7 +13,7 @@
 
 **Event-driven job-processing platform** — a property-data import & report-generation service that demonstrates backend **reliability engineering** *beyond CRUD*: at-least-once delivery, exactly-once *effect*, failure isolation, and automatic crash recovery.
 
-Submit a job (e.g. a property CSV import) → the API records it atomically and emits a domain event through a **transactional outbox** → **idempotent workers** process it with **retries** and a **dead-letter** path, recovering on their own from a worker crash → progress streams over **WebSockets** *(M4)* before a downloadable report.
+Submit a job (e.g. a property CSV import) → the API records it atomically and emits a domain event through a **transactional outbox** → **idempotent workers** process it with **retries** and a **dead-letter** path, recovering on their own from a worker crash → progress streams over **WebSockets** → the imported records come back as a **downloadable CSV report**.
 
 > Portfolio project — the focus is the *reliability and operability* story, not feature breadth. **Milestones 1–4 are complete** — through observability, live job status over WebSockets ([ADR 0004](docs/adr/0004-realtime-websockets.md)), and a minimal live-progress demo page at `/`; **M5 (deploy + public demo) is next.**
 
@@ -111,6 +111,7 @@ curl -X POST localhost:8000/api/v1/jobs/ \
   -d '{"job_type": "property_csv_import", "payload": {"source": "sample:properties.csv"}}'
 
 curl localhost:8000/api/v1/jobs/<id>/
+curl -OJ localhost:8000/api/v1/jobs/<id>/report/   # download the imported records (CSV)
 curl localhost:8000/healthz   # liveness
 curl localhost:8000/readyz    # readiness (DB + broker)
 curl localhost:8000/metrics   # Prometheus metrics
@@ -130,6 +131,7 @@ The current API is `v1`:
 | `POST` | `/api/v1/jobs/` | Submit a job → `202 Accepted` with id + `Location`. Honours an `Idempotency-Key` header. |
 | `GET` | `/api/v1/jobs/{id}/` | Job status, progress, result, error. |
 | `GET` | `/api/v1/jobs/` | List jobs (paginated). |
+| `GET` | `/api/v1/jobs/{id}/report/` | Download the imported records as CSV (streamed; `409` until the job has `SUCCEEDED`). |
 | `GET` | `/healthz` | Liveness — the process is up (no dependency I/O). |
 | `GET` | `/readyz` | Readiness — database + broker reachable (`503` if not). |
 | `GET` | `/metrics` | Prometheus metrics — queue depth, dispatch lag, dead-letter count. |
@@ -153,7 +155,11 @@ Beyond the feature work, the repo is operated like a production service:
 - **M2 — async worker + transactional outbox** *(done)*: atomic job+event write, Beat relay, worker ingests the property CSV into `PropertyRecord`. See [ADR 0001](docs/adr/0001-transactional-outbox.md).
 - **M3 — reliability** *(done)*: worker-side idempotency (exactly-once effect), retries with backoff, dead-letter, lease-based crash recovery, operator redrive, documented failure modes. See [ADR 0002](docs/adr/0002-retries-dlq-lease.md).
 - **M4 — realtime UI + observability** *(done)*: observability (structured logging, DB-derived Prometheus metrics, liveness/readiness, [runbook](docs/runbook.md); [ADR 0003](docs/adr/0003-observability.md)), **live job status over WebSockets** (Channels; [ADR 0004](docs/adr/0004-realtime-websockets.md)), and a **minimal live-progress demo page** at `/` (vanilla JS, no build step).
-- **M5 — ship** *(in progress)*: **production hardening done** — HTTPS/proxy security settings, WhiteNoise static, non-root image (verified by `manage.py check --deploy`); **next** is the platform deploy (managed Postgres + Redis → public URL) + case study.
+- **M5 — ship** *(in progress)*:
+  - ✅ **Production hardening** — HTTPS/proxy security settings, WhiteNoise static, non-root image (verified by `manage.py check --deploy`).
+  - ✅ **Downloadable report** — streamed CSV of a job's imported records (`GET /api/v1/jobs/{id}/report/` + demo-page download link), completing the advertised pipeline.
+  - ⬜ **Platform deploy** — managed Postgres + Redis running the published GHCR image behind a public URL.
+  - ⬜ **Case study** — write-up of the reliability story (outbox → idempotency/DLQ/lease → realtime → report), linking the ADRs.
 
 ## Development
 
