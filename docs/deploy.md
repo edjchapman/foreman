@@ -97,15 +97,23 @@ reference. So the release pipeline is explicit
 (`release-please.yml` → `deploy` job → `make deploy VERSION=<x.y.z>` →
 [`scripts/railway-deploy.sh`](../scripts/railway-deploy.sh)):
 
-1. **Pin, don't track `:latest`**: each service's `source.image` is set to the
+1. **Pre-flight**: the script verifies the tag exists on GHCR (anonymous
+   manifest check) before pinning anything — a typo'd or unpublished version
+   fails fast instead of at Railway pull time.
+2. **Pin, don't track `:latest`**: each service's `source.image` is set to the
    exact semver tag (`serviceInstanceUpdate`), keeping every Railway
    deployment reproducible and making rollback meaningful.
-2. **Web deploys first and gates the rest**: its pre-deploy command runs
+3. **Web deploys first and gates the rest**: its pre-deploy command runs
    `migrate` (failure aborts the rollout; Railway keeps the previous
    deployment serving) and its `/readyz` healthcheck gates cutover. The script
    polls until `SUCCESS` before touching worker/beat, so new worker code never
    runs ahead of its migrations.
-3. Worker and beat then pin + deploy.
+4. **Worker and beat then pin + deploy concurrently**, and each is polled to
+   `SUCCESS` too — a crash-looping worker fails the rollout instead of leaving
+   CD green.
+
+The scripts need only `curl` + `jq` (present on `ubuntu-latest` and any dev
+machine with the repo toolchain).
 
 Secrets/variables the workflow needs (GitHub repo settings):
 

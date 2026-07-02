@@ -13,7 +13,9 @@
 # worker/beat are touched. Web's pre-deploy command runs `manage.py migrate`
 # and its /readyz healthcheck gates the cutover — so new worker code never
 # runs ahead of its migrations. A failed web deploy aborts the whole rollout
-# (Railway keeps the previous deployment serving).
+# (Railway keeps the previous deployment serving). Worker and beat then deploy
+# concurrently and are each polled to SUCCESS — a crash-looping worker fails
+# the rollout instead of leaving CD green.
 #
 # ENV CONTRACT (all required):
 #   RAILWAY_TOKEN              project token (env-scoped) — sent as
@@ -32,7 +34,8 @@
 set -euo pipefail
 
 VERSION="${1:?usage: railway-deploy.sh <version>}"
-IMAGE="ghcr.io/edjchapman/foreman:${VERSION}"
+IMAGE_REPO="edjchapman/foreman"
+IMAGE="ghcr.io/${IMAGE_REPO}:${VERSION}"
 API="https://backboard.railway.com/graphql/v2"
 WAIT_TIMEOUT_SECONDS="${WAIT_TIMEOUT_SECONDS:-600}"
 POLL_SECONDS=10
@@ -48,6 +51,18 @@ if [[ "${RAILWAY_TOKEN_KIND:-project}" == "account" ]]; then
 else
   AUTH_HEADER="Project-Access-Token: ${RAILWAY_TOKEN}"
 fi
+
+check_image_exists() { # fail before pinning anything if the tag was never published
+  local token
+  token="$(curl -fsS "https://ghcr.io/token?scope=repository:${IMAGE_REPO}:pull" | jq -r '.token')"
+  curl -fsSI -o /dev/null \
+    -H "Authorization: Bearer ${token}" \
+    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
+    "https://ghcr.io/v2/${IMAGE_REPO}/manifests/${VERSION}" || {
+    echo "${IMAGE} not found on GHCR — is ${VERSION} a published release?" >&2
+    return 1
+  }
+}
 
 gql() { # gql <json-body> -> response body (fails on transport or GraphQL errors)
   local body response
@@ -106,6 +121,7 @@ wait_success() { # wait_success <service-id> <label>
 }
 
 echo "Deploying ${IMAGE}"
+check_image_exists
 
 echo "web: pinning image + deploying (pre-deploy migrate + /readyz gate run here)"
 set_image "$RAILWAY_WEB_SERVICE_ID"
@@ -120,4 +136,9 @@ echo "beat: pinning image + deploying"
 set_image "$RAILWAY_BEAT_SERVICE_ID"
 deploy "$RAILWAY_BEAT_SERVICE_ID"
 
-echo "Rollout of ${VERSION} triggered — web verified, worker/beat deploying."
+# Worker/beat deploy concurrently; polling is serial but the deadline in
+# wait_success is per-service, so a slow worker doesn't eat beat's budget.
+wait_success "$RAILWAY_WORKER_SERVICE_ID" "worker"
+wait_success "$RAILWAY_BEAT_SERVICE_ID" "beat"
+
+echo "Rollout of ${VERSION} complete — web, worker, and beat all verified."
